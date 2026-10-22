@@ -6,22 +6,131 @@ on OpenShift: MCP Server, MCP Gateway, Broker, Auth, and Authorization.
 Based on the official Red Hat documentation:
 - [OCP 4.22 — MCP server for Red Hat OpenShift](https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/ai_applications/mcp-server)
 - [Red Hat Connectivity Link 1.3 — Installing the MCP Gateway](https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.3/html/installing_the_mcp_gateway/mcp-gateway-install)
+- [RHOAI 3.5 — Working with the MCP Catalog](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.5/html/working_with_the_mcp_catalog/index)
 
-> **Status**: MCP server for Red Hat OpenShift is a **Technology Preview** feature.
-> Not supported with production SLAs. Do not include personal or sensitive
-> information in prompts.
+> **Status**: MCP server for Red Hat OpenShift and the RHOAI MCP Catalog are both
+> **Technology Preview** features. Not supported with production SLAs. Do not
+> include personal or sensitive information in prompts.
 
 ---
 
-## Prerequisites
+## Version Compatibility
+
+All MCP features require **OCP 4.22**. There are no supported workarounds for
+older clusters.
+
+| Component | OCP 4.19 | OCP 4.20 | OCP 4.21 | OCP 4.22 |
+|-----------|----------|----------|----------|----------|
+| Red Hat OpenShift AI 3.5 (general) | ✅ | ✅ | — | — |
+| MCP Catalog / MCP Lifecycle Operator (RHOAI 3.5) | ❌ | ❌ | ❌ | ✅ |
+| MCP Server Helm chart (OCP standalone) | ❌ | ❌ | ❌ | ✅ |
+| MCP Gateway (Red Hat Connectivity Link 1.3) | ❌ | ❌ | ❌ | ✅ |
+
+**Sources:**
+- RHOAI 3.5 supports **OCP 4.19–4.20** for general installation
+  ([install guide](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.5/pdf/installing_and_uninstalling_openshift_ai_self-managed)).
+- The MCP Lifecycle Operator in RHOAI 3.5 explicitly requires **OCP 4.22 or later**
+  ([MCP Catalog prerequisites](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.5/html/working_with_the_mcp_catalog/enabling-mcp-lifecycle-management)).
+- The MCP Server Helm chart enforces `kubeVersion: ">= 1.34.0-0"` (Kubernetes 1.34+ = OCP 4.21+),
+  but is only documented and supported under the
+  [OCP 4.22 AI applications](https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/ai_applications/mcp-server) docs.
+
+> **⚠️ If your cluster is on OCP 4.20 or earlier:** You cannot install MCP through
+> any supported path. The Helm chart will fail the `kubeVersion` check
+> (OCP 4.20 = Kubernetes 1.33, below the 1.34 minimum), and bypassing it
+> puts you in an untested, unsupported configuration. **Upgrade to OCP 4.22
+> before proceeding.**
+
+### MCP servers available in the RHOAI 3.5 Catalog
+
+The RHOAI 3.5 MCP Catalog includes the **Red Hat OpenShift MCP Server** (the same
+server available as a standalone Helm chart) along with other servers. When
+deployed through the catalog, the MCP Lifecycle Operator manages the server
+lifecycle instead of Helm — but the **OCP 4.22 requirement is the same** for both
+paths.
+
+([Release notes — Developer Preview features](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.5/html/release_notes/developer-preview-features_relnotes),
+[Red Hat Ecosystem Catalog — MCP servers](https://catalog.redhat.com/en/categories/ai/mcpservers))
+
+| Server | Provider | Description |
+|--------|----------|-------------|
+| **Red Hat OpenShift** | Red Hat | Cluster management and troubleshooting |
+| Red Hat Ansible Automation Platform | Red Hat | Playbook execution and configuration orchestration |
+| Red Hat Insights | Red Hat | Platform intelligence and remediation recommendations |
+| Confluent Cloud | Partner | Kafka and Flink streaming |
+| EDB Postgres AI | Partner | Database queries and schema management |
+| HashiCorp Terraform | Partner | Infrastructure as code |
+| Microsoft Azure | Partner | Cloud resource management |
+| Dynatrace | Partner | Performance monitoring and troubleshooting |
+| MongoDB | Community | Document collections and RAG workflows |
+| MariaDB | Community | Relational database connectivity |
+
+In addition, RHOAI 3.5 provides **`rhoai-mcp`** (Developer Preview) — a separate
+MCP server that lets AI coding agents (Claude Code, OpenCode, Gemini CLI)
+interact with OpenShift AI itself for model recommendations, project management,
+and Kubernetes manifest generation. This is distinct from the OpenShift cluster
+management MCP server above.
+
+---
+
+## Installation Paths
+
+There are two ways to deploy the OpenShift MCP Server. Both require **OCP 4.22+**.
+
+| Path | When to use | Details |
+|------|-------------|---------|
+| **RHOAI 3.5 MCP Catalog** (recommended) | You already have OpenShift AI 3.5 on OCP 4.22 | Enable the MCP Lifecycle Operator in the DataScienceCluster, then deploy the Red Hat OpenShift MCP Server (and other servers) from the AI Hub dashboard — no Helm or manifests needed |
+| **Standalone Helm chart** (this guide) | You do not have RHOAI, or need manual control | Install the MCP Server via Helm, then manually set up Gateway, Auth, and AuthZ (Steps 1–9 below) |
+
+The RHOAI 3.5 catalog deploys the **same Red Hat OpenShift MCP Server** that the
+standalone Helm chart installs, but manages it through the MCP Lifecycle
+Operator instead of Helm. The MCP Gateway is a separate install in both paths.
+
+If you have RHOAI 3.5 on OCP 4.22, see the [RHOAI MCP Catalog quick start](#rhoai-35-mcp-catalog-quick-start) section before following the manual Helm steps.
+
+---
+
+## RHOAI 3.5 MCP Catalog Quick Start
+
+If OpenShift AI 3.5 is already installed on an **OCP 4.22+** cluster, you can
+deploy MCP servers through the AI Hub dashboard instead of the manual Helm
+steps below.
+
+### Enable the MCP Lifecycle Operator
+
+```bash
+# Check your DataScienceCluster name
+oc get datasciencecluster
+
+# Enable the MCP Lifecycle Operator
+oc patch datasciencecluster default-dsc --type=merge \
+  -p '{"spec":{"components":{"mcplifecycleoperator":{"managementState":"Managed"}}}}'
+```
+
+### Enable the MCP Catalog dashboard
+
+```bash
+oc patch odhdashboardconfig odh-dashboard-config -n redhat-ods-applications \
+  --type=merge -p '{"spec":{"dashboardConfig":{"mcpCatalog":true}}}'
+```
+
+After enabling, navigate to **AI Hub → MCP servers** in the OpenShift AI
+dashboard to browse and deploy MCP servers from the catalog.
+
+> For full details see: [Enable MCP server lifecycle management](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.5/html/working_with_the_mcp_catalog/enabling-mcp-lifecycle-management)
+> and [Deploy and manage MCP servers](https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.5/html/working_with_the_mcp_catalog/deploying-and-managing-mcp-servers).
+
+---
+
+## Prerequisites (Standalone Helm Install)
 
 | Requirement | Details |
 |-------------|---------|
-| OpenShift Container Platform | 4.22+ with cluster-admin |
+| OpenShift Container Platform | **4.22+** with cluster-admin |
 | `oc` CLI | Installed and authenticated |
 | Helm CLI | 3.x installed |
 | MCP-compatible client | Claude Code, Cursor, VS Code, or OpenShift LightSpeed |
-| Identity Provider | Entra ID (for OAuth-based auth, Step 8+) |
+| Identity Provider | Entra ID (for OAuth-based auth, Step 6+) |
 
 ---
 
@@ -769,5 +878,11 @@ oc delete clusterrolebinding <binding-name>
 |----------|-----|
 | MCP Server for Red Hat OpenShift (OCP 4.22) | https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/ai_applications/mcp-server |
 | Installing the MCP Gateway (RHCL 1.3) | https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.3/html/installing_the_mcp_gateway/mcp-gateway-install |
+| RHOAI 3.5 — Working with the MCP Catalog | https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.5/html/working_with_the_mcp_catalog/index |
+| RHOAI 3.5 — Enable MCP Lifecycle Operator | https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.5/html/working_with_the_mcp_catalog/enabling-mcp-lifecycle-management |
+| RHOAI 3.5 — Deploy and Manage MCP Servers | https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.5/html/working_with_the_mcp_catalog/deploying-and-managing-mcp-servers |
+| RHOAI 3.5 — Install Guide (supported OCP versions) | https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.5/pdf/installing_and_uninstalling_openshift_ai_self-managed |
+| RHOAI 3.5 — Release Notes (Tech Preview features) | https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.5/html/release_notes/technology-preview-features_relnotes |
+| Red Hat Ecosystem Catalog — MCP Servers | https://catalog.redhat.com/en/categories/ai/mcpservers |
 | OpenShift MCP Server GitHub | https://github.com/openshift/openshift-mcp-server |
 | MCP Server Blog Post | https://www.redhat.com/en/blog/model-context-protocol-server-red-hat-openshift-now-available-technology-preview |
