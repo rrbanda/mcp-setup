@@ -42,15 +42,20 @@ echo "Cluster domain: ${CLUSTER_DOMAIN}"
 
 ## Step 1: Install the MCP Server (Upstream Chart)
 
-Use the **upstream community chart** from `oci://ghcr.io/openshift/charts/openshift-mcp-server`
-instead of `openshift-helm-charts/redhat-openshift-mcp-server`. The upstream
+Use the **upstream community chart** from `oci://ghcr.io/containers/charts/kubernetes-mcp-server`
+instead of `openshift-helm-charts/redhat-openshift-mcp-server`. The community
 chart has no `kubeVersion` constraint.
+
+> **Chart options:**
+> - `oci://ghcr.io/containers/charts/kubernetes-mcp-server` — community chart, **no version gate** (verified)
+> - `oci://ghcr.io/openshift/charts/openshift-mcp-server` — OpenShift-specific chart from `release-0.2.0` branch (may have its own version constraints)
+> - `openshift-helm-charts/redhat-openshift-mcp-server` — Red Hat certified chart, has `kubeVersion: ">= 1.34.0-0"` (will fail on OCP 4.20)
 
 ### Read-only access (recommended)
 
 ```bash
 helm upgrade -i -n openshift-mcp-server --create-namespace openshift-mcp-server \
-    oci://ghcr.io/openshift/charts/openshift-mcp-server \
+    oci://ghcr.io/containers/charts/kubernetes-mcp-server \
     --set config.toolsets='{core,config,helm,metrics,netedge}' \
     --set ingress.host=mcp-server.apps.${CLUSTER_DOMAIN} \
     --set openshift=true \
@@ -61,7 +66,7 @@ helm upgrade -i -n openshift-mcp-server --create-namespace openshift-mcp-server 
 
 ```bash
 helm upgrade -i -n openshift-mcp-server --create-namespace openshift-mcp-server \
-    oci://ghcr.io/openshift/charts/openshift-mcp-server \
+    oci://ghcr.io/containers/charts/kubernetes-mcp-server \
     --set config.toolsets='{core,config,helm,metrics,netedge}' \
     --set ingress.host=mcp-server.apps.${CLUSTER_DOMAIN} \
     --set openshift=true \
@@ -143,7 +148,7 @@ kind = "ClusterRoleBinding"
 Apply:
 
 ```bash
-helm upgrade openshift-mcp-server oci://ghcr.io/openshift/charts/openshift-mcp-server \
+helm upgrade openshift-mcp-server oci://ghcr.io/containers/charts/kubernetes-mcp-server \
     -n openshift-mcp-server \
     --set-file config.deniedResources=deny-resources.toml
 ```
@@ -185,7 +190,7 @@ extraRoleBindings:
 Apply:
 
 ```bash
-helm upgrade openshift-mcp-server oci://ghcr.io/openshift/charts/openshift-mcp-server \
+helm upgrade openshift-mcp-server oci://ghcr.io/containers/charts/kubernetes-mcp-server \
     -n openshift-mcp-server \
     -f rbac-values.yaml
 ```
@@ -432,7 +437,7 @@ constraint. OCP 4.20 runs Kubernetes 1.33.
 
 ```bash
 helm upgrade -i -n openshift-mcp-server --create-namespace openshift-mcp-server \
-    oci://ghcr.io/openshift/charts/openshift-mcp-server \
+    oci://ghcr.io/containers/charts/kubernetes-mcp-server \
     --set ingress.host=mcp-server.apps.${CLUSTER_DOMAIN} \
     --set openshift=true \
     --set-json 'rbac.extraClusterRoleBindings=[{"name":"use-view-role","roleRef":{"name":"view","external":true}}]'
@@ -517,7 +522,7 @@ When the cluster is upgraded to **OCP 4.22**, you can:
 
 | Resource | URL |
 |----------|-----|
-| Upstream chart (no version gate) | `oci://ghcr.io/openshift/charts/openshift-mcp-server` |
+| Upstream community chart (no version gate) | `oci://ghcr.io/containers/charts/kubernetes-mcp-server` |
 | OpenShift MCP Server GitHub | https://github.com/openshift/openshift-mcp-server |
 | MCP Server for Red Hat OpenShift (OCP 4.22 docs) | https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/ai_applications/mcp-server |
 | Installing the MCP Gateway (RHCL 1.3) | https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.3/html/installing_the_mcp_gateway/mcp-gateway-install |
