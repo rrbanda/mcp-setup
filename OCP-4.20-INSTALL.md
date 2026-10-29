@@ -472,6 +472,112 @@ oc describe pod -n openshift-mcp-server -l app.kubernetes.io/name=kubernetes-mcp
 oc logs -n openshift-mcp-server -l app.kubernetes.io/name=kubernetes-mcp-server
 ```
 
+### Gateway tools/call fails: "tool not found" (tools/list works fine)
+
+**Symptom:** `tools/list` returns all tools correctly, MCPServerRegistration
+shows `Ready=True` with tools discovered, but every `tools/call` fails:
+
+```json
+{"code":-32602,"message":"tool 'pods_list_in_namespace' not found: tool not found"}
+```
+
+Broker logs show on every call:
+
+```
+level=ERROR msg="unable to check conflict, tool id is missing"
+  component=broker sub-component=mcp-manager
+```
+
+The backend MCP server works correctly when called directly (bypassing the gateway).
+
+**Cause:** This is a known bug in the MCP Gateway broker
+([Kuadrant/mcp-gateway #1100](https://github.com/Kuadrant/mcp-gateway/issues/1100),
+fixed in [PR #1149](https://github.com/Kuadrant/mcp-gateway/pull/1149)).
+
+The broker's `findToolConflicts` function expects a `kuadrant/id` metadata field
+on every tool. Upstream MCP servers (including the OpenShift MCP Server) return
+tools without this Kuadrant-specific metadata. The broker treats the missing
+metadata as an error, fails the conflict check, and cannot properly route
+`tools/call` requests to the backend — even though `tools/list` returns the
+cached tool list from discovery.
+
+**Diagnosis:**
+
+```bash
+# Enable debug logging on the gateway
+oc set env deployment/mcp-gateway LOG_LEVEL=-4 -n ${GATEWAY_NS}
+
+# Watch logs during a tools/call attempt
+oc logs -f -n ${GATEWAY_NS} deployment/mcp-gateway | grep -E "conflict|tool|routing|authority"
+
+# Check the gateway image version
+oc get deployment mcp-gateway -n ${GATEWAY_NS} -o jsonpath='{.spec.template.spec.containers[0].image}'
+```
+
+Look for:
+- `unable to check conflict, tool id is missing` → confirms this bug
+- `Found matching server` / `Stripped tool name` → routing is working (fix is present)
+
+**Fix:** Upgrade the MCP Gateway to a version that includes the fix (post-v0.7.x):
+
+```bash
+# Check if a newer Red Hat Connectivity Link operator version is available
+oc get csv -n ${GATEWAY_NS} | grep connectivity
+
+# Check available versions in the operator catalog
+oc get packagemanifest -n openshift-marketplace | grep connectivity
+```
+
+If an updated operator version is available, upgrade through the OLM/OperatorHub.
+If not, the fix may need to be applied by rebuilding or patching the gateway
+image from the upstream [Kuadrant/mcp-gateway](https://github.com/Kuadrant/mcp-gateway)
+repository (commit `eb5fa14` or later).
+
+**Workaround (if upgrade is not possible):** Connect MCP clients directly to the
+MCP Server endpoint, bypassing the gateway entirely. This loses centralized
+auth/routing but restores tool functionality:
+
+```json
+{
+  "mcpServers": {
+    "openshift": {
+      "type": "http",
+      "url": "https://mcp-server.apps.<cluster-domain>/mcp"
+    }
+  }
+}
+```
+
+### Tool call returns "tool not found" — prefix mismatch
+
+**Symptom:** `tools/list` through the gateway returns tools with the configured
+prefix (e.g., `openshift_pods_list_in_namespace`), but `tools/call` fails with
+"tool not found".
+
+**Cause:** The client is calling the tool without the prefix, or with the wrong
+prefix.
+
+**Fix:** When calling tools through the gateway, use the **prefixed** name:
+
+```bash
+# Correct — with prefix
+curl -X POST http://mcp-gateway.apps.<cluster-domain>:8001/mcp \
+  -H "Content-Type: application/json" \
+  -H "mcp-session-id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{
+    "name":"openshift_pods_list_in_namespace",
+    "arguments":{"namespace":"default"}}}'
+
+# Wrong — without prefix (will fail)
+# "name":"pods_list_in_namespace"
+```
+
+Check your MCPServerRegistration prefix:
+
+```bash
+oc get mcpsr -A -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.prefix}{"\n"}{end}'
+```
+
 ---
 
 ## Known Limitations on OCP 4.20
